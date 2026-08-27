@@ -994,6 +994,9 @@
       <button id="dash-tab-btn-autoavaliacao" onclick="setDashboardTab('autoavaliacao')" class="flex-1 py-2.5 text-[10px] uppercase tracking-widest font-bold text-ink-light dark:text-white/50 hover:text-ink dark:hover:text-white transition-all">
         Autoavaliações
       </button>
+      <button id="dash-tab-btn-slas" onclick="setDashboardTab('slas')" class="flex-1 py-2.5 text-[10px] uppercase tracking-widest font-bold text-ink-light dark:text-white/50 hover:text-ink dark:hover:text-white transition-all">
+        SLAs
+      </button>
     </div>
 
     <!-- ABA: MÉTRICAS DE SATISFAÇÃO -->
@@ -1123,6 +1126,42 @@
       </div>
     </div>
     <!-- FIM DA ABA: RESULTADOS DAS AUTOAVALIAÇÕES -->
+
+    <!-- ABA: SLAS POR TIPO DE DEMANDA -->
+    <!-- Consulta apenas: a lista sai de SLA_TIPOS, a mesma fonte que o formulário
+         de solicitação usa para checar a data pedida. Mexer no prazo lá muda aqui. -->
+    <div id="dash-tab-slas" class="w-full hidden">
+      <div class="bg-white dark:bg-[#1A1A1A] border border-paper-dark dark:border-white/5 p-5 md:p-8 w-full">
+        <div class="border-b border-paper-dark dark:border-white/10 pb-4 mb-6">
+          <h3 class="text-xs font-bold uppercase tracking-widest text-ink dark:text-white">SLAs por tipo de demanda</h3>
+          <p class="text-xs text-ink-light dark:text-white/60 font-medium mt-2 font-satoshi">
+            Prazos acordados para cada tipo de demanda da esteira de design. São os mesmos
+            que o formulário de solicitação usa para conferir a data pedida e sugerir a prioridade.
+            Os dias são corridos e contam a partir da abertura da demanda.
+          </p>
+        </div>
+
+        <div class="flex flex-col sm:flex-row sm:items-end gap-4 mb-6 w-full">
+          <div class="flex-1 w-full min-w-0">
+            <label class="block text-[9px] uppercase tracking-widest font-bold text-ink-light dark:text-white/50 mb-2">Buscar tipo de demanda</label>
+            <input type="text" id="sla-filtro" oninput="renderSlaTabela()" placeholder="Ex.: banners, apostilas, LPs..." class="w-full border-b border-paper-dark dark:border-white/20 pb-2 text-sm focus:outline-none focus:border-accent bg-transparent text-ink dark:text-white placeholder-ink-light/50 dark:placeholder-white/30">
+          </div>
+          <p id="sla-contagem" class="text-[9px] uppercase tracking-widest font-bold text-ink-light dark:text-white/50 shrink-0"></p>
+        </div>
+
+        <!-- Cabeçalho da tabela: some no mobile, onde cada item vira um cartão -->
+        <div class="hidden md:grid md:grid-cols-12 gap-4 px-4 pb-2 border-b border-paper-dark dark:border-white/10">
+          <span class="md:col-span-5 text-[9px] uppercase tracking-widest font-bold text-ink-light dark:text-white/50">Tipo de demanda</span>
+          <span class="md:col-span-4 text-[9px] uppercase tracking-widest font-bold text-ink-light dark:text-white/50">Prazo</span>
+          <span class="md:col-span-3 text-[9px] uppercase tracking-widest font-bold text-ink-light dark:text-white/50 md:text-right">Dias corridos</span>
+        </div>
+
+        <div id="sla-lista" class="flex flex-col w-full">
+          <!-- Renderizado dinamicamente via JS a partir de SLA_TIPOS -->
+        </div>
+      </div>
+    </div>
+    <!-- FIM DA ABA: SLAS POR TIPO DE DEMANDA -->
   </div>
 
   <!-- ========================================== -->
@@ -2550,32 +2589,95 @@
     }
 
     // ==========================================
-    // ABAS DO PAINEL: SATISFAÇÃO E AUTOAVALIAÇÕES
+    // ABAS DO PAINEL: SATISFAÇÃO, AUTOAVALIAÇÕES E SLAS
     // ==========================================
+    const DASHBOARD_TABS = ['satisfacao', 'autoavaliacao', 'slas'];
     let dashboardTab = 'satisfacao';
 
     function setDashboardTab(tab) {
-      dashboardTab = (tab === 'autoavaliacao') ? 'autoavaliacao' : 'satisfacao';
+      dashboardTab = DASHBOARD_TABS.includes(tab) ? tab : 'satisfacao';
 
       const activeClass = "flex-1 py-2.5 text-[10px] uppercase tracking-widest font-bold bg-accent shadow-sm rounded-[2px] text-white transition-all";
       const inactiveClass = "flex-1 py-2.5 text-[10px] uppercase tracking-widest font-bold text-ink-light dark:text-white/50 hover:text-ink dark:hover:text-white transition-all";
 
-      const painelSatisfacao = document.getElementById('dash-tab-satisfacao');
-      const painelAuto = document.getElementById('dash-tab-autoavaliacao');
-      const btnSatisfacao = document.getElementById('dash-tab-btn-satisfacao');
-      const btnAuto = document.getElementById('dash-tab-btn-autoavaliacao');
+      DASHBOARD_TABS.forEach(nome => {
+        const painel = document.getElementById(`dash-tab-${nome}`);
+        const btn = document.getElementById(`dash-tab-btn-${nome}`);
+        const ativa = nome === dashboardTab;
+
+        if (painel) painel.classList.toggle('hidden', !ativa);
+        if (btn) btn.className = ativa ? activeClass : inactiveClass;
+      });
 
       // A média global do cabeçalho é da satisfação: fora dela, não faz sentido
       const headerMedia = document.getElementById('dash-header-media');
+      if (headerMedia) headerMedia.classList.toggle('hidden', dashboardTab !== 'satisfacao');
 
-      const emAuto = dashboardTab === 'autoavaliacao';
+      if (dashboardTab === 'slas') renderSlaTabela();
+    }
 
-      if (painelSatisfacao) painelSatisfacao.classList.toggle('hidden', emAuto);
-      if (painelAuto) painelAuto.classList.toggle('hidden', !emAuto);
-      if (headerMedia) headerMedia.classList.toggle('hidden', emAuto);
+    // ==========================================
+    // ABA DE SLAS: CONSULTA DOS PRAZOS ACORDADOS
+    // ------------------------------------------
+    // Lista SLA_TIPOS como está — é a mesma constante que o formulário de
+    // solicitação consulta, então a aba nunca diverge do que o solicitante vê.
+    // ==========================================
+    function renderSlaTabela() {
+      const lista = document.getElementById('sla-lista');
+      if (!lista) return;
 
-      if (btnSatisfacao) btnSatisfacao.className = emAuto ? inactiveClass : activeClass;
-      if (btnAuto) btnAuto.className = emAuto ? activeClass : inactiveClass;
+      const contagem = document.getElementById('sla-contagem');
+      const filtroEl = document.getElementById('sla-filtro');
+      const termo = (filtroEl ? filtroEl.value : '').trim().toLowerCase();
+
+      const tipos = termo
+        ? SLA_TIPOS.filter(t => t.id.toLowerCase().includes(termo) || t.prazo.toLowerCase().includes(termo))
+        : SLA_TIPOS;
+
+      if (contagem) {
+        contagem.innerText = termo
+          ? `${tipos.length} de ${SLA_TIPOS.length} tipos`
+          : `${SLA_TIPOS.length} tipos de demanda`;
+      }
+
+      if (!tipos.length) {
+        lista.innerHTML = `
+          <p class="text-sm text-ink-light dark:text-white/50 py-8 text-center">
+            Nenhum tipo de demanda encontrado para esta busca.
+          </p>`;
+        return;
+      }
+
+      lista.innerHTML = tipos.map(tipo => {
+        // Prazo em aberto não tem contagem de dias: quem define é o time, na triagem.
+        const dias = tipo.aDefinir
+          ? '<span class="text-ink-light dark:text-white/40 italic">A definir</span>'
+          : `${tipo.minDays} a ${tipo.maxDays}`;
+
+        const obs = tipo.obs
+          ? `<span class="block text-[11px] text-ink-light dark:text-white/50 italic mt-1 break-words">${tipo.obs}</span>`
+          : '';
+
+        const prazoClass = tipo.aDefinir
+          ? 'text-ink-light dark:text-white/60 italic'
+          : 'text-accent dark:text-[#72A68C]';
+
+        return `
+          <div class="grid grid-cols-1 md:grid-cols-12 gap-1 md:gap-4 py-4 px-0 md:px-4 border-b border-paper-dark dark:border-white/5 last:border-b-0 hover:bg-paper-dark/20 dark:hover:bg-white/5 transition-colors w-full">
+            <div class="md:col-span-5 min-w-0">
+              <span class="text-sm font-medium text-ink dark:text-white break-words">${tipo.id}</span>
+              ${obs}
+            </div>
+            <div class="md:col-span-4 min-w-0">
+              <span class="md:hidden text-[9px] uppercase tracking-widest font-bold text-ink-light dark:text-white/40 block">Prazo</span>
+              <span class="text-sm font-medium break-words ${prazoClass}">${tipo.prazo}</span>
+            </div>
+            <div class="md:col-span-3 min-w-0 md:text-right">
+              <span class="md:hidden text-[9px] uppercase tracking-widest font-bold text-ink-light dark:text-white/40 block mt-1">Dias corridos</span>
+              <span class="text-sm text-ink dark:text-white/80 whitespace-nowrap">${dias}</span>
+            </div>
+          </div>`;
+      }).join('');
     }
 
     // Abre a seção pedida pelo endereço. O painel continua atrás da senha: o
